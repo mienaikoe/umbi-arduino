@@ -36,7 +36,7 @@ namespace Navi{
       magNorm.reset();
 
       Serial.println();
-      Serial.print("Disconnected from");
+      Serial.print("Disconnected from ");
       Serial.println(central_name);
     }
 
@@ -62,7 +62,7 @@ namespace Navi{
        * - Enable auto advertising if disconnected
        * - Interval:  fast mode = 20 ms, slow mode = ~1sec
        * - Timeout for fast mode is 30 seconds
-       * - Start(timeout) with timeout = 0 will advertise forever (until connected)
+       * - Start(timeout) with timeout = 0 will advertise forever (until streaming)
        *
        * For recommended advertising interval
        * https://developer.apple.com/library/content/qa/qa1931/_index.html
@@ -100,10 +100,13 @@ namespace Navi{
      */
 
     void levelAccelerometer( sensors_vec_t *ret, sensors_vec_t *mag ){
-      // if the field is oriented off of the x-y plane,
+      // mag can't tell you which way gravity is pointed
+      // because gravity and magnetic North are orthogonal
 
+      float z = ret->z;
+      float x = ret->x;
+      float y = ret->y;
 
-      /*
       float zAbs = z > 0 ? z : -z;
       float xAbs = x > 0 ? x : -x;
       float yAbs = y > 0 ? y : -y;
@@ -136,7 +139,6 @@ namespace Navi{
         }
         ret->x = x; // assumes phone is being held with the camera facing out and the screen facing in
       }
-      */
     }
 
 
@@ -148,7 +150,7 @@ namespace Navi{
         // Wait for new data to arrive
         uint8_t len = readPacket(&bleuart, 500);
         if (len == 0) {
-          return true;
+          return false;
         }
 
         // Magnetometer
@@ -159,25 +161,22 @@ namespace Navi{
           centralMagnetometer->z = parsefloat(packetbuffer+10);
           magNorm.normalizeMagnetometer( centralMagnetometer );
 
-          Serial.print("Mag\t");
-          Serial.print(centralMagnetometer->x); Serial.print('\t');
-          Serial.print(centralMagnetometer->y); Serial.print('\t');
-          Serial.print(centralMagnetometer->z); Serial.println();
+          Serial.printf("Central Mag\t x: %f, y: %f, z: %f\n",
+            centralMagnetometer->x, centralMagnetometer->y, centralMagnetometer->z);
         } else if( packetbuffer[1] == 'A'){
           // TODO: Normalize phone-side not bot-side
           centralAccelerometer->x = 9.81 * parsefloat(packetbuffer+2);
           centralAccelerometer->y = 9.81 * parsefloat(packetbuffer+6);
           centralAccelerometer->z = 9.81 * parsefloat(packetbuffer+10);
-          levelAccelerometer( centralAccelerometer, centralMagnetometer );
+          //levelAccelerometer( centralAccelerometer, centralMagnetometer );
 
-          Serial.print("Acc\t");
-          Serial.print(centralAccelerometer->x); Serial.print('\t');
-          Serial.print(centralAccelerometer->y); Serial.print('\t');
-          Serial.print(centralAccelerometer->z); Serial.println();
+          Serial.printf("Central Acc\t x: %f, y: %f, z: %f\n",
+            centralAccelerometer->x, centralAccelerometer->y, centralAccelerometer->z);
         }
+        return true;
       }
 
-      return connected;
+      return false;
     }
   }
 }

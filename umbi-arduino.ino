@@ -9,6 +9,8 @@ sensors_vec_t centralAccelerometer;
 
 uint16_t battery = 0;
 
+bool isDown = true;
+
 void setup() {
   Serial.begin(115200);
   while (!Serial) {
@@ -22,10 +24,13 @@ void setup() {
 }
 
 void loop() {
-  bool connected = Navi::Discovery::loop(&centralAccelerometer, &centralMagnetometer);
-  if( connected ){
+  bool streaming = Navi::Discovery::loop(&centralAccelerometer, &centralMagnetometer);
+  if( streaming ){
+    if( isDown ){
+      isDown = false;
+    }
     Navi::Flight::loop(&centralAccelerometer, &centralMagnetometer);
-  } else {
+  } else if( !isDown ){
     centralAccelerometer.x = 0.0;
     centralAccelerometer.y = 0.0;
     centralAccelerometer.z = 0.0;
@@ -33,5 +38,9 @@ void loop() {
     centralMagnetometer.y = 0.0;
     centralMagnetometer.z = 0.0;
     Navi::Flight::down();
+    isDown = true;
+  } else {
+    delay(100);
+    // saves battery
   }
 }

@@ -17,15 +17,15 @@
 
 
 // TODO: Move this to a special trig approximation class
-const float atancoarse[] = { // ratio increments of 1
-  -89,-89,-88,-88,-88,-88,-88,-88,-88,-88,-88,-88,-88,-88,
-  -88,-88,-88,-88,-87,-87,-87,-87,-87,-87,-86,-86,-86,-86,
-  -85,-85,-84,-84,-83,-82,-81,-79,-76,-72,-63,-45,0,45,63,
-  72,76,79,81,82,83,84,84,85,85,86,86,86,86,87,87,87,87,87,
-  87,88,88,88,88,88,88,88,88,88,88,88,88,88,88,88,88,89
+const float atancoarse[] = { // ratio increments of 1 from -40 to 40
+  -89,-89,-88,-88,-88,-88,-88,-88,-88,-88,-88,-88,-88,-88, // 0 to 12
+  -88,-88,-88,-88,-87,-87,-87,-87,-87,-87,-86,-86,-86,-86, // 13 to 26
+  -85,-85,-84,-84,-83,-82,-81,-79,-76,-72,-63,-45,0,45,63, // 27 to 41
+  72,76,79,81,82,83,84,84,85,85,86,86,86,86,87,87,87,87,87, // 42 to 61
+  87,88,88,88,88,88,88,88,88,88,88,88,88,88,88,88,88,89,89 // 62 to 81
 };
 
-const float atanfine[] = { // ratio increments of 0.01
+const float atanfine[] = { // ratio increments of 0.01 from -0.99 to 0.99
   -45,-45,-44,-44,-44,-44,-43,-43,-43,-42,-42,-42,-41,-41,-41,-40,-40,-40,
   -39,-39,-39,-38,-38,-38,-37,-37,-37,-36,-36,-35,-35,-35,-34,-34,-33,-33,
   -33,-32,-32,-31,-31,-31,-30,-30,-29,-29,-28,-28,-27,-27,-27,-26,-26,-25,
@@ -49,9 +49,8 @@ namespace Navi{
 
     sensors_event_t localAccelerometer, localMagnetometer, localGyro;
 
-    MagNormalizer magNorm(0.2724, 0.1845, 0.2558, 0.4890,	0.5069,	0.4903); // values are deduced from calibration readings
-
-    bool isDown = true;
+    MagNormalizer magNorm;
+      //0.2724, 0.1845, 0.2558, 0.4890,	0.5069,	0.4903); // values are deduced from calibration readings
 
 
 
@@ -122,6 +121,10 @@ namespace Navi{
         // effectively not moving
         // TODO: Determine if the central is moving by comparing with mag readings
         // (once we have normalized mag readings from central)
+        control.front_left  = BASELINE_PWM;
+        control.front_right = BASELINE_PWM;
+        control.aft_left    = BASELINE_PWM;
+        control.aft_right   = BASELINE_PWM;
         return;
       }
 
@@ -142,13 +145,22 @@ namespace Navi{
       if( vec->x == 0.0 ){
         return vec->y > 0 ? 90 : 270;
       }
+
       float ratio = vec->y / vec->x;
-      int adder = vec->y > 0 ? 0 : 180;
+      int adder = vec->x < 0 ? 180 : (vec->y < 0 ? 360 : 0);
+      // in q1, leave as is
+      // in q2, 180 + atan
+      // in q3, 180 + atan
+      // in q4, 360 + atan
+
       if( ratio > 39 || ratio < -39 ){
+        // |y| is much larger than |x|, close enough to 90 to assume 90
         return adder + 90;
-      } else if( ratio > 0.99 || ratio < -0.99)  { // coarse
+      } else if( ratio > 0.99 || ratio < -0.99)  {
+        // approximation for |y| > |x|
         return adder + atancoarse[(int)(ratio + (ratio > 0 ? 40.5 : 39.5))];
       } else {
+        // fine approximation
         return adder + atanfine[(int)((ratio*50) + (ratio > 0 ? 50.5 : 49.5))];
       }
     }
@@ -157,18 +169,32 @@ namespace Navi{
       // mLocal       // y is forward, x is right, z is down
       // mCentral     // y is forward, x is left, z is up
 
-
       int centralAngle = arctanApprox(mCentral);
       int localAngle = arctanApprox(mLocal);
       int angleDiff = centralAngle - localAngle;
-      if( angleDiff > 180 ){ // move counterclockwise
+      if( angleDiff > 180 ){
+        // centralAngle is in q3 or q4 while local is in q1 or q2
+        // counterclockwise is the quickest anglediff
         angleDiff = -360 + angleDiff;
+      } else if( angleDiff < -180 ){
+        // centralAngle is in q1 or q2 while local is in q3 or q4
+        // clockwise is the quickest anglediff
+        angleDiff = 360 + angleDiff;
+      }
+
+      if( DEBUGGING ){
+        /*
+        Serial.printf("Local x: %f, Local y: %f, local atan: %d, central atan: %d, diff: %d\n",
+        mLocal->x, mLocal->y, localAngle, centralAngle, angleDiff);
+        */
       }
 
       int turn = 0;
       if( angleDiff < 10 && angleDiff > -10 ) {
+        // within a small amount of angle difference, the turn shouldn't be very much
         turn = (int)(angleDiff / 2);
       } else {
+        // otherwise, the turn should be a bit more pronounced
         turn = (angleDiff > 0 ? 6 : -6);
       }
 
@@ -189,17 +215,17 @@ namespace Navi{
       magNorm.normalizeMagnetometer(&localMagnetometer.magnetic);
 
       if( DEBUGGING ){
-        /*
+
         Serial.printf(
-          "Accel   = x: %f, y: %f, z: %f\n",
+          "Local Acc  \t= x: %f, y: %f, z: %f\n",
           localAccelerometer.acceleration.x,
           localAccelerometer.acceleration.y,
           localAccelerometer.acceleration.z
         );
-        */
+
 
         Serial.printf(
-          "Mag     = x: %f, y: %f, z: %f\n",
+          "Local Mag  \t= x: %f, y: %f, z: %f\n",
           localMagnetometer.magnetic.x,
           localMagnetometer.magnetic.y,
           localMagnetometer.magnetic.z
@@ -220,7 +246,7 @@ namespace Navi{
       analogWrite( PIN_AFT_LEFT,    control.aft_left );
       analogWrite( PIN_AFT_RIGHT,   control.aft_right );
 
-      if( DEBUGGING && false ){
+      if( DEBUGGING ){
         Serial.printf(
           "Control = fl: %d, fr: %d, al: %d, ar: %d\n",
           control.front_left, control.front_right,
@@ -230,19 +256,17 @@ namespace Navi{
     }
 
     void down(){
-      if( !isDown ){
-        for( int ix=BASELINE_PWM; ix>0; ix -= 10 ){
-          // power down the craft slowly
-          analogWrite( PIN_FRONT_LEFT,  ix );
-          analogWrite( PIN_FRONT_RIGHT, ix );
-          analogWrite( PIN_AFT_LEFT,    ix );
-          analogWrite( PIN_AFT_RIGHT,   ix );
-          delay(100);
-        }
-        isDown = true;
-        Serial.println("Touched Down");
-        magNorm.reset();
+      Serial.println("Heading Down");
+      for( int ix=BASELINE_PWM; ix>0; ix -= 10 ){
+        // power down the craft slowly
+        analogWrite( PIN_FRONT_LEFT,  ix );
+        analogWrite( PIN_FRONT_RIGHT, ix );
+        analogWrite( PIN_AFT_LEFT,    ix );
+        analogWrite( PIN_AFT_RIGHT,   ix );
+        delay(100);
       }
+      Serial.println("Touched Down");
+      magNorm.reset();
     }
 
 
